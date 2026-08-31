@@ -1,0 +1,57 @@
+name: Refresh profile cards
+
+on:
+  schedule:
+    # every 6 hours
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/scripts/gen_cards.py"
+      - ".github/workflows/cards.yml"
+
+# so the job may commit the regenerated SVGs back
+permissions:
+  contents: write
+
+concurrency:
+  group: profile-cards
+  cancel-in-progress: true
+
+jobs:
+  cards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet "fonttools[woff]>=4.50"
+
+      - name: Generate cards
+        env:
+          # GITHUB_TOKEN only sees public data, which is all these cards show.
+          # For private-contribution counts, make a classic PAT with
+          # read:user + repo, save it as the secret PROFILE_TOKEN, and it wins.
+          GH_TOKEN: ${{ secrets.PROFILE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_USER: ${{ github.repository_owner }}
+        run: python .github/scripts/gen_cards.py
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/stats.svg assets/langs.svg assets/streak.svg assets/graph.svg
+          if git diff --staged --quiet; then
+            echo "cards unchanged"
+          else
+            git commit -m "chore: refresh profile cards [skip ci]"
+            git push
+          fi
